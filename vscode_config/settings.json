@@ -1,0 +1,13 @@
+{
+    "files.associations": {
+        "stdio.h": "c",
+        "math.h": "c",
+        "sqlite3.h": "c",
+        "string.h": "c",
+        "stdlib.h": "c",
+        "limits": "c",
+        "*.tcc": "c",
+        "type_traits": "c",
+        "time.h": "c"
+    }
+}

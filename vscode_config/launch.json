@@ -1,0 +1,26 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "gcc.exe ",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/exe/${fileBasenameNoExtension}.exe",//同task.json中的
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,//如果你要输入，则设置为true
+            "MIMode": "gdb",
+            "miDebuggerPath": "D:\\Program Files\\mingw64\\bin\\gdb.exe",//要改自己的路径
+            "setupCommands": [
+                {
+                    "description": "为 gdb 启用整齐打印",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "gcc"
+        }
+    ]
+}
