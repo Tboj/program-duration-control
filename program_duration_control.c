@@ -4,7 +4,7 @@
 #include "lib\sqlite3.h"
 #include <time.h>
 
-#define PROGRAM_NUM(program_list) (sizeof(program_list) / sizeof((program_list)[0]))
+#define PROGRAM_NUM(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 void split(char *src,const char *separator,char **dest,int *num);
 
@@ -20,6 +20,24 @@ void split(char *src,const char *separator,char **dest,int *num);
  *           否则持续时间加一分钟
  **/
 
+
+typedef struct PROGRAM_LIST_ {
+    char program_list[65525];
+    int length;
+} *PL;
+
+typedef struct Program_duration {
+    int id;
+    long start_time;
+    int duration;
+} *PD;
+
+typedef struct Program_ {
+    int id;
+    char *name;
+} *Program;
+
+
 sqlite3 *db;
 
 struct tm now;
@@ -32,23 +50,74 @@ long allow_duration_day_off = 5*60;
 char *to_kill_pids[65525] = {0};
 int to_kill_pid_num = 0;
 
-char *program_list[] = {"wegame.exe"};
+char *program_list_default[] = {"TIM"};
 
-typedef struct Program_duration {
-    int id;
-    long start_time;
-    int duration;
-} *PD;
+PL pl;
 
-char *table = "CREATE TABLE IF NOT EXISTS \"main\" (\
+char *program_duration_table = "CREATE TABLE IF NOT EXISTS \"program_duration\" (\
   \"id\" integer(20) NOT NULL,\
   \"start_time\" TEXT,\
   \"duration\" TEXT,\
   PRIMARY KEY (\"id\")\
 );";
 
+char *program_list_table = "CREATE TABLE IF NOT EXISTS \"program_list\" (\
+  \"id\" integer(20) NOT NULL,\
+  \"name\" TEXT,\
+  PRIMARY KEY (\"id\")\
+);";
+
+void insert_pl_default() {
+    int index = 0;
+    char insert_pre[100] = "insert into program_list (id, name) values ";
+    char *insert_val = "";
+    for (int i = 0; i < PROGRAM_NUM(program_list_default); i++) {
+        char sql[100];
+        sprintf(sql, "(%d, %s)", i + 1, program_list_default[i]);
+        if (strlen(insert_val) != 0) {
+            char *dest = ", ";
+            char *sql1 = strcat(dest, sql);
+        }
+        insert_val = strcat(insert_val, sql);
+    }
+    char *sql = strcat(insert_pre, insert_val);
+    sql_exec(sql, NULL);
+}
+
+void parse_Program(char **dbresult, int nRow, int nColum) {
+    Program **programs;  
+    // 一共有多少列，就有多少个字段，从所有字段下一个开始就是值了
+    int index = nColum;
+    for (int i = nColum; i < nRow * nColum; i++) {
+        if (i % 2 == 0) {
+            pl->program_list[(pl->length)++] = dbresult[index];
+        }
+    }
+}
+
+void get_program_list() {
+    char **dbresult;
+    int nRow;
+    int nColum;
+    char *zErrMsg;
+
+    int rc = sqlite3_get_table(db, "SELECT  * FROM program", &dbresult, &nRow, &nColum, &zErrMsg);
+    if (rc != SQLITE_OK) {
+        printf("error: %s\n", sqlite3_errmsg(db));
+        // 建表
+        sql_exec(program_list_table, NULL);
+        get_program_list();
+    } else if (nRow == 0) {
+        // 空表，插入默认数据
+        insert_pl_default();
+        get_program_list();
+    } else {
+        parse_Program(dbresult, nRow, nColum);
+    }
+}
+
 void create() {
-    sql_exec(table, NULL);
+    sql_exec(program_duration_table, NULL);
 }
 
 PD parse_CallBack(int f_num, char **f_val, char **f_nume) {
@@ -82,7 +151,7 @@ int exec_db_CallBack(void *para, int f_num, char **f_val, char **f_nume) {
 }
 
 int count() {
-    char *count_sql = "SELECT count(*) as count FROM main";
+    char *count_sql = "SELECT count(*) as count FROM program_duration";
     char **result, *errmsg;
     int nrow, ncolumn, i, j, index;
     if (sqlite3_get_table(db, count_sql, &result, &nrow, &ncolumn, &errmsg) != 0) {
@@ -103,7 +172,7 @@ void handle() {
     }
 
     char *sql;
-    sql = "select * from main";
+    sql = "select * from program_duration";
     // The logic is in the exec_db_CallBack
     sql_exec(sql, &exec_db_CallBack);
 
@@ -111,19 +180,19 @@ void handle() {
 
 void update_for_new_day(int id) {
     char sql[100];
-    sprintf(sql, "update main set start_time = %d, duration = 0 where id = %d", now_timestamp, id);
+    sprintf(sql, "update program_duration set start_time = %d, duration = 0 where id = %d", now_timestamp, id);
     sql_exec(sql, NULL);
 }
 
 void add_minute(int id, int duration) {
     char sql[100];
-    sprintf(sql, "update main set duration = %d where id = %d", duration, id);
+    sprintf(sql, "update program_duration set duration = %d where id = %d", duration, id);
     sql_exec(sql, NULL);
 }
 
 void insert() {
     char sql[100];
-    sprintf(sql, "insert into main (id, start_time, duration) values (1, %d, 0)", now_timestamp);
+    sprintf(sql, "insert into program_duration (id, start_time, duration) values (1, %d, 0)", now_timestamp);
     sql_exec(sql, NULL);
 }
 
@@ -211,12 +280,9 @@ int get_to_kill_pids_real(char *program) {
 int get_to_kill_pids() {
     empty_to_kill_pids();
     int flag = 0;
-    int c = PROGRAM_NUM(program_list);
-    for (int i = 0; i < PROGRAM_NUM(program_list); i++) {
-        if (program_list[i] != 0) {
-            int flag_ = get_to_kill_pids_real(program_list[i]);
-            flag = flag == 0 ? flag_ : flag;
-        }
+    for (int i = 0; i < pl->length; i++) {
+        int flag_ = get_to_kill_pids_real(pl->program_list[i]);
+        flag = flag == 0 ? flag_ : flag;
     }
     return flag;
 }
@@ -267,14 +333,21 @@ int open_sqlite3() {
     return 1;
 }
 
+int init() {
+    int flag = open_sqlite3();
+    if (!flag) {
+        return flag;
+    }
+    time(&now_timestamp);
+    localtime_s(&now, &now_timestamp);
+    pl = malloc(sizeof(PL));
+    get_program_list();
+    return flag;
+}
+
 int main() {
-    while (1)
-    {
-        if (open_sqlite3()) {
-            time(&now_timestamp);
-            localtime_s(&now, &now_timestamp);
-
-
+    while (1) {
+        if (init()) {
             int flag = get_to_kill_pids();
             if (flag) {
                 handle();
