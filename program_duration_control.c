@@ -7,6 +7,7 @@
 #define PROGRAM_NUM(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 void split(char *src,const char *separator,char **dest,int *num);
+void sql_exec(char *sql, sqlite3_callback Callback);
 
 /**
  * 每1分钟扫描一次
@@ -22,7 +23,7 @@ void split(char *src,const char *separator,char **dest,int *num);
 
 
 typedef struct PROGRAM_LIST_ {
-    char program_list[65525];
+    char *program_list[65525];
     int length;
 } *PL;
 
@@ -50,7 +51,7 @@ long allow_duration_day_off = 5*60;
 char *to_kill_pids[65525] = {0};
 int to_kill_pid_num = 0;
 
-char *program_list_default[] = {"TIM"};
+char *program_list_default[] = {"TIM", "QQMusic.exe"};
 
 PL pl;
 
@@ -69,18 +70,20 @@ char *program_list_table = "CREATE TABLE IF NOT EXISTS \"program_list\" (\
 
 void insert_pl_default() {
     int index = 0;
-    char insert_pre[100] = "insert into program_list (id, name) values ";
-    char *insert_val = "";
+    char sql[2500] = "insert into program_list (id, name) values ";
+    char insert_val[2048] = "";
     for (int i = 0; i < PROGRAM_NUM(program_list_default); i++) {
-        char sql[100];
-        sprintf(sql, "(%d, %s)", i + 1, program_list_default[i]);
+        char v_sql[100];
+        sprintf(v_sql, "(%d, '%s')", i + 1, program_list_default[i]);
         if (strlen(insert_val) != 0) {
-            char *dest = ", ";
-            char *sql1 = strcat(dest, sql);
+            char dest[100] = ", ";
+            // 要先拼接上，再拷贝过去，C语言不能直接改变数组变量的指向
+            strcat(dest, v_sql);
+            strcpy(v_sql, dest);
         }
-        insert_val = strcat(insert_val, sql);
+        strcat(insert_val, v_sql);
     }
-    char *sql = strcat(insert_pre, insert_val);
+    strcat(sql, insert_val);
     sql_exec(sql, NULL);
 }
 
@@ -88,10 +91,15 @@ void parse_Program(char **dbresult, int nRow, int nColum) {
     Program **programs;  
     // 一共有多少列，就有多少个字段，从所有字段下一个开始就是值了
     int index = nColum;
-    for (int i = nColum; i < nRow * nColum; i++) {
-        if (i % 2 == 0) {
-            pl->program_list[(pl->length)++] = dbresult[index];
+    
+    for (int i = nColum; i < (nRow + 1) * nColum; i++) {
+        if (i % 2 == 1) {
+            int length = pl->length;
+            char *r = dbresult[index];
+            pl->program_list[(pl->length)++] = r;
+            // (pl->length)++;
         }
+        index++;
     }
 }
 
@@ -101,7 +109,7 @@ void get_program_list() {
     int nColum;
     char *zErrMsg;
 
-    int rc = sqlite3_get_table(db, "SELECT  * FROM program", &dbresult, &nRow, &nColum, &zErrMsg);
+    int rc = sqlite3_get_table(db, "SELECT  * FROM program_list", &dbresult, &nRow, &nColum, &zErrMsg);
     if (rc != SQLITE_OK) {
         printf("error: %s\n", sqlite3_errmsg(db));
         // 建表
@@ -121,7 +129,7 @@ void create() {
 }
 
 PD parse_CallBack(int f_num, char **f_val, char **f_nume) {
-    PD pd = malloc(sizeof(PD));
+    PD pd = malloc(sizeof(struct Program_duration));
     for (int i = 0; i < f_num; i++) {
         if (strcmp(f_nume[i], "id") == 0) 
             pd->id = atoi(f_val[i]);
@@ -138,15 +146,15 @@ int exec_db_CallBack(void *para, int f_num, char **f_val, char **f_nume) {
     if (pd->id == NULL || pd->id == 0) {
         // 不存在记录，则新增
         insert();
-        return 0;
-    }
-    
-    if (is_today(pd->start_time)) {
+    } else if (is_today(pd->start_time)) {
+        // 如果是今天
         duration_handle(pd);
         return 0;
+    } else {
+        // 如果不是今天，update
+        update_for_new_day(pd->id);
     }
-    // update
-    update_for_new_day(pd->id);
+    free(pd);
     return 0;
 }
 
@@ -246,6 +254,7 @@ void kill() {
         for (int i = 0; i < to_kill_pid_num; i++) {
             char command_prefix[50] = "taskkill /f /t /im ";
             char *to_kill_command = strcat(command_prefix, to_kill_pids[i]);
+            printf("kill: %s \n", to_kill_command);
             system(to_kill_command);
         }
     }
@@ -340,7 +349,15 @@ int init() {
     }
     time(&now_timestamp);
     localtime_s(&now, &now_timestamp);
-    pl = malloc(sizeof(PL));
+    PL pl1 = (PL)malloc(sizeof(struct PROGRAM_LIST_));
+
+    pl = (PL)malloc(sizeof(struct PROGRAM_LIST_));
+    pl->length = 0;
+    
+    for (int i = 0; i < 65525; i++) {
+        pl->program_list[i] = 0;
+    }
+
     get_program_list();
     return flag;
 }
@@ -355,5 +372,4 @@ int main() {
         }
         _sleep(2000);
     }
-    
 }
