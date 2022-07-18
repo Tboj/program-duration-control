@@ -33,12 +33,6 @@ typedef struct Program_duration {
     int duration;
 } *PD;
 
-typedef struct Program_ {
-    int id;
-    char *name;
-} *Program;
-
-
 sqlite3 *db;
 
 struct tm now;
@@ -51,7 +45,7 @@ long allow_duration_day_off = 5*60;
 char *to_kill_pids[65525] = {0};
 int to_kill_pid_num = 0;
 
-char *program_list_default[] = {"TIM", "QQMusic.exe"};
+char *program_list_default[] = {"TIM.exe", "QQMusic.exe"};
 
 PL pl;
 
@@ -67,6 +61,34 @@ char *program_list_table = "CREATE TABLE IF NOT EXISTS \"program_list\" (\
   \"name\" TEXT,\
   PRIMARY KEY (\"id\")\
 );";
+
+char* join(char *result, char **src, int length, char *separator) {
+    for (int i = 0; i < length; i++) {
+        char *s_1 = src[i];
+        int l = src[i] != NULL;
+        if (src[i] != NULL && strlen(src[i]) != 0) {
+            if (strlen(separator) != 0 && strlen(result) != 0) {
+                strcat(result, separator);
+            }
+            strcat(result, src[i]);
+        }
+    }
+}
+
+#define FILE_PATH "D:\\my_log.txt" //信息输出文件
+int WriteToLog(char *str)
+{
+    FILE *pfile;
+    fopen_s(&pfile, FILE_PATH, "a+");
+    if (pfile == NULL)  
+    {
+        return -1;
+    }
+
+    fprintf_s(pfile, "%s\n", str);
+    fclose(pfile);
+    return 0;
+}
 
 void insert_pl_default() {
     int index = 0;
@@ -88,7 +110,6 @@ void insert_pl_default() {
 }
 
 void parse_Program(char **dbresult, int nRow, int nColum) {
-    Program **programs;  
     // 一共有多少列，就有多少个字段，从所有字段下一个开始就是值了
     int index = nColum;
     
@@ -146,6 +167,7 @@ int exec_db_CallBack(void *para, int f_num, char **f_val, char **f_nume) {
     if (pd->id == NULL || pd->id == 0) {
         // 不存在记录，则新增
         insert();
+        WriteToLog("No usage record exists. Add a usage record");
     } else if (is_today(pd->start_time)) {
         // 如果是今天
         duration_handle(pd);
@@ -153,6 +175,7 @@ int exec_db_CallBack(void *para, int f_num, char **f_val, char **f_nume) {
     } else {
         // 如果不是今天，update
         update_for_new_day(pd->id);
+        WriteToLog("Not today's record, updated to today's");
     }
     free(pd);
     return 0;
@@ -213,6 +236,9 @@ void duration_handle(PD pd) {
         return;
     }
     // duration add one minute
+    char log_s[20];
+    sprintf(log_s, "used: %d minute, record add one", pd->duration);
+    WriteToLog(log_s);
     add_minute(pd->id, (pd->duration) + 1);
 }
 
@@ -251,12 +277,14 @@ int exec_command(char *command, char *mode) {
 
 void kill() {
     if (to_kill_pid_num > 0) {
+        WriteToLog("tokill: ");
         for (int i = 0; i < to_kill_pid_num; i++) {
             char command_prefix[50] = "taskkill /f /t /im ";
             char *to_kill_command = strcat(command_prefix, to_kill_pids[i]);
-            printf("kill: %s \n", to_kill_command);
+            WriteToLog(to_kill_command);
             system(to_kill_command);
         }
+        WriteToLog("over");
     }
 }
 
@@ -292,6 +320,17 @@ int get_to_kill_pids() {
     for (int i = 0; i < pl->length; i++) {
         int flag_ = get_to_kill_pids_real(pl->program_list[i]);
         flag = flag == 0 ? flag_ : flag;
+    }
+    if (flag) {
+        char log[2048] = {0};
+        char log_program[1024] = {0};
+        char log_pids[1024] = {0};
+        join(log_program, pl->program_list, 1024, ",");
+        join(log_pids, to_kill_pids, 1024, ",");
+        sprintf(log, "program_list: %s , found pid: %s", log_program, log_pids);
+        
+        printf("log=%s", log);
+        WriteToLog(log);
     }
     return flag;
 }
@@ -362,8 +401,19 @@ int init() {
     return flag;
 }
 
+void extern_this() {
+    WriteToLog("comming");
+    if (init()) {
+        int flag = get_to_kill_pids();
+        if (flag) {
+            handle();
+        }
+    }
+}
+
 int main() {
     while (1) {
+        WriteToLog("comming");
         if (init()) {
             int flag = get_to_kill_pids();
             if (flag) {
