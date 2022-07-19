@@ -298,7 +298,7 @@ int get_to_kill_pids_real(char *program) {
     sprintf(command, "tasklist | find \"%s\"", program);
     if ((fp = _popen(command, "r")) == NULL) {
         perror("Fail to Open\n");
-        return;
+        return 0;
     }
     int flag = 0;
     char buf[255] = {0};
@@ -306,8 +306,9 @@ int get_to_kill_pids_real(char *program) {
         char *revbuf[100] = {0};
         int num;
         split(buf," ", revbuf, &num);
-
-        push(to_kill_pids, revbuf[1], 65525);
+        char *s = (char *) malloc(100);
+        strcpy(s, revbuf[1]);
+        push(to_kill_pids, s, 65525);
         to_kill_pid_num++;
         flag = 1;
     }
